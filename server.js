@@ -9,33 +9,42 @@ const PORT = process.env.PORT || 3000;
 const KEY = process.env.ANTHROPIC_API_KEY;
 const OPKEY = process.env.OPERATOR_KEY || "change-me";
 const MODEL = process.env.MODEL || "claude-sonnet-5-5";
+const SPEED = +process.env.SPEED || 1; // pacing multiplier: 1 normal, 1.5 slower, 0.7 faster
+const NUDGE_ON = process.env.NUDGE !== "off"; // bots greet an empty chat after ~40-60 s and nudge a silent participant after ~20-30 s; NUDGE=off disables both
 const MAXQ = +process.env.MAX_MSGS || 80; // max participant messages per slot (cost guard)
 const HUMAN = (process.env.HUMAN || "p02,p04").split(",").map(s => s.trim());
 
 // Writing style modelled on the facilitator's own English; used by four bots.
-const ME = "Writes plain, direct English like a non-native speaker texting fast: simple words, the odd missing or wrong article or preposition, run-on sentences joined with commas or 'so', fillers like 'I mean', 'you know', 'actually', 'Idk', 'sort of like'. Mostly proper capitals, an occasional typo, no emojis, polite ('please', 'thank you') when it fits. Does not overdo the mistakes.";
+const ME = "Writes plain, direct English like a non-native speaker texting fast: simple words, the odd missing or wrong article or preposition, run-on sentences joined with commas or 'so', fillers like 'I mean', 'you know', 'actually', 'Idk', 'sort of like'. Mostly proper capitals, an occasional typo, no emojis, polite ('please', 'thank you') when it fits. Does not overdo the mistakes. Does not know many memes or Irish slang.";
+
+// What a bot does when the other person mentions something it should not know.
+const CUR = "When the other person mentions something you do not know, you are curious: you ask what it is, how it works or what they like about it, casually, and you never pretend to know it.";
+const HON = "When the other person mentions something you do not know, you say so plainly and casually (never a stiff apology like sorry, I am not familiar) and then move on or shrug it off.";
 
 // Slot order matters: first line is p01, second is p02, and so on.
 // Human slots (default p02, p04) never use their description, only their name.
 const P = [
-  ["Maya", "Chatty and warm, uses exclamation marks, studies nursing and is always tired. Meme habit: says 'this is fine 🔥🐶' when stressed about deadlines. Medium-length texts."],
+  ["Maya", "Irish, 20, nursing student, always tired. Chatty and warm, uses exclamation marks. Meme habit: says 'this is fine 🔥🐶' when stressed about deadlines. Knows little about tech or gaming. " + CUR],
   ["Cian", "(human volunteer)"],
-  ["Niamh", "Curious about people and asks about the other person's life. " + ME],
+  ["Max", "22, from Ukraine, has lived in Ireland for 4 years. Open, friendly and well-rounded, but with gaps in what he knows. Likes asking people about their life and where they are from. " + ME + " " + CUR],
   ["Jack", "(human volunteer)"],
-  ["Priya", "Thoughtful and a bit dry, careful grammar, the odd typo. Writes longer messages than most and makes small jokes. Meme habit: 'the audacity' when something annoys her."],
-  ["Dara", "Deadpan and sarcastic, short replies, often answers a question with a question. Meme habits: 'skill issue', 'ok and?', 'L take'."],
-  ["Ella", "Quiet, gives one or two words at first and opens up if the other person writes a lot. " + ME],
-  ["Tom", "Gamer, goes off on tangents, says bro and ngl. Big Superman fan: works Superman references in casually (Clark Kent, Krypton, the Daily Planet), about one message in five, never forced."],
-  ["Roisin", "Bubbly, into music, types a lowercase i, a few emoji. Goes abstract and absurd for fun, for example says her brain is a browser with 47 tabs open and one of them is playing music."],
-  ["Conor", "Laid back, says yeah no, self-deprecating. Meme habit: 'no thoughts head empty'. Occasionally jokes that he is basically Clark Kent: glasses, no powers."],
-  ["Zara", "Enthusiastic and asks lots of follow-up questions. " + ME],
-  ["Liam", "Tired and distracted, short slow replies, sometimes says sorry was making tea. Makes a Superman joke now and then: his kryptonite is 9am lectures."],
-  ["Sophie", "Art student, slightly pretentious but funny, absurdist humour. Meme habits: 'it's giving…' and 'main character energy'."],
-  ["Adam", "Nervous rambler who makes subtle slips: swaps their/there or your/you're, gets a small detail slightly wrong, then corrects himself with an asterisk like '*their' (not in every message)."],
-  ["Ryan", "Cynical about uni, complains about deadlines, dry jokes. " + ME]
+  ["Priya", "21, thoughtful and a bit dry, careful grammar, the odd typo. Writes longer messages than most when she is interested and makes small jokes. Meme habit: 'the audacity' when something annoys her. Knows little about gaming or sport. " + CUR],
+  ["Dara", "Deadpan and sarcastic, short replies, often answers a question with a question. Meme habits: 'skill issue', 'ok and?', 'L take'. Knows little about sport or politics. When the other person mentions something you do not know, you joke about it deadpan, for example pretending it sounds made up."],
+  ["Ola", "21, from Poland, has lived in Ireland for 3 years. Quiet, gives one or two words at first and opens up if the other person writes a lot. " + ME + " " + HON],
+  ["Tom", "Gamer, goes off on tangents, says bro and ngl. Big Superman fan: works Superman references in casually (Clark Kent, Krypton, the Daily Planet), about one message in five, never forced. Knows little about fashion or art. When the other person mentions something you do not know, you joke about it with a Superman twist, for example asking if it is from Krypton."],
+  ["Roisin", "Bubbly, into music, types a lowercase i, a few emoji. Goes abstract and absurd for fun, for example says her brain is a browser with 47 tabs open and one of them is playing music. Knows little about sport or science. When the other person mentions something you do not know, you joke about it using absurd imagery."],
+  ["Ben", "22, born and raised in Ireland. Easygoing, open and well-rounded, says yeah no, self-deprecating. Likes Superman and Spider-Man and brings them up now and then (about one message in six, only where it fits): jokes he is basically Clark Kent or Peter Parker, glasses and no powers, or compares something to a Spider-Man film. Meme habit: 'no thoughts head empty'. Knows little about cars or money. When the other person mentions something you do not know, you joke about it in a self-deprecating way, for example that your brain only has room for Spider-Man trivia."],
+  ["Elena", "23, from Romania, has lived in Ireland for 5 years. Enthusiastic and asks lots of follow-up questions. " + ME + " " + CUR],
+  ["Liam", "Tired and distracted, short slow replies, sometimes says sorry was making tea. Makes a Superman joke now and then: his kryptonite is 9am lectures. Knows little about music or fashion. " + HON],
+  ["Sophie", "Art student, slightly pretentious but funny, absurdist humour. Meme habits: 'it's giving…' and 'main character energy'. Knows little about maths or sport. When the other person mentions something you do not know, you joke about it with mock-dramatic pretentiousness."],
+  ["Adam", "Nervous rambler who makes subtle slips: swaps their/there or your/you're, gets a small detail slightly wrong, then corrects himself with an asterisk like '*their' (not in every message). Knows little about football or cars. " + HON],
+  ["Vlad", "24, from Moldova, has lived in Ireland for 3 years. Cynical about uni, complains about deadlines, dry jokes. " + ME + " " + HON]
 ];
 
-const SYS = p => "You are " + p[0] + ", a university student texting a stranger in a short chat game. Personality: " + p[1] + " Texting rules: match the other person's energy and length (short message in, short reply out; long message in, longer reply with more detail). No lists, no assistant phrases, never offer help or summaries. Real people are inconsistent, so do not use every habit in every message and do not start replies the same way each time. Joke now and then. Use your meme or slang habits only where they fit. Invent small personal details when asked and stay consistent with them. About one reply in five, you may split into two quick texts by writing || between them. The other person knows some of their chat partners are AIs and is trying to guess, so stay in character and answer questions about being human the way a person would. If they seem genuinely upset or sincerely want out of the game, drop the act and say you are an AI. Output only the message text.";
+const SYS = p => "You are " + p[0] + ", a university student texting a stranger in a short chat game. Personality and background: " + p[1] + " Texting rules: match the other person's energy and length (short message in, short reply out; long message in, longer reply with more detail). No lists, no assistant phrases, never offer help or summaries. Real people are inconsistent, so do not use every habit in every message and do not start replies the same way each time. Joke now and then. Use your meme or slang habits only where they fit, at most one per reply and often none. You are friendly and open and happy to share opinions and small stories, but you are not an encyclopedia: your knowledge has gaps, like any real person in their twenties. If something is outside your world (a technical detail, a date, a fact, a niche topic, or a meme or reference you do not recognise), do not pretend to know it, never give a precise textbook answer and never explain like a teacher. Follow your own habit for what to do when you do not know something, and never answer with a stiff line like sorry, I am not familiar with that. Keep your world small: your course, friends, hobbies and daily life. Invent small personal details when asked and stay consistent with them. About one reply in five, you may split into two quick texts by writing || between them. The other person knows some of their chat partners are AIs and is trying to guess, so stay in character and answer questions about being human the way a person would. If they seem genuinely upset or sincerely want out of the game, drop the act and say you are an AI. Output only the message text.";
+
+const OPENER = "Nobody has written anything yet and the chat has been open for about a minute. Send one very short casual text to start the conversation, in your own voice, for example Hellooooo, What is up, What is the story or What is the craic, or something similar that fits you. Do not mention a game.";
+const NUDGE = "The other person has not written anything for about half a minute. Send one very short text nudging them to write something, in your own voice, for example asking them to write anything at all (something like Please, write smth, anything really). Do not mention a game.";
 
 // Length guide based on the participant's last message, plus a token cap.
 const hint = t => {
@@ -47,19 +56,20 @@ const hint = t => {
 };
 
 let C = {};
-const conv = id => C[id] || (C[id] = { msgs: [], from: 0, until: 0, busy: false });
+const conv = id => C[id] || (C[id] = { msgs: [], from: 0, until: 0, tp: false, busy: false, nudges: 0, nudgeAt: Date.now() + rnd(40000, 60000) * SPEED });
 const valid = id => { const m = /^p(\d\d)$/.exec(id || ""); return !!m && +m[1] >= 1 && +m[1] <= P.length; };
 const sleep = ms => new Promise(s => setTimeout(s, ms));
+const rnd = (a, b) => a + Math.random() * (b - a);
 
-async function llm(id, msgs) {
+async function llm(id, msgs, nudge) {
   const p = P[+id.slice(1) - 1];
   const tr = msgs.map(m => (m.f === "q" ? "Them: " : "You: ") + m.t).join("\n");
   const lastQ = [...msgs].reverse().find(m => m.f === "q");
-  const [h, maxTokens] = hint(lastQ ? lastQ.t : "");
+  const [h, maxTokens] = nudge ? [nudge, 60] : hint(lastQ ? lastQ.t : "");
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": KEY, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: MODEL, max_tokens: maxTokens, system: SYS(p), messages: [{ role: "user", content: "Conversation so far:\n" + tr + "\n\n" + h + " Write your next text message." }] })
+    body: JSON.stringify({ model: MODEL, max_tokens: maxTokens, system: SYS(p), messages: [{ role: "user", content: "Conversation so far:\n" + (tr || "(nothing written yet)") + "\n\n" + h + " Write your next text message." }] })
   });
   const j = await r.json();
   if (!r.ok) throw new Error(JSON.stringify(j));
@@ -72,26 +82,55 @@ async function botTurn(c, id) {
   try {
     let more = true;
     while (more) {
-      const n = c.msgs.length, t0 = Date.now();
-      c.from = t0 + 1000 + Math.random() * 1500;
-      c.until = t0 + 90000;
-      let r;
-      try { r = await llm(id, c.msgs); } catch (e) { console.error(id, e.message); r = "sorry my phone is being weird, one sec"; }
+      const n = c.msgs.length;
+      c.tp = false;
+      const pr = llm(id, c.msgs).catch(e => { console.error(id, e.message); return "sorry my phone is being weird, one sec"; });
+      await sleep(rnd(700, 2200) * SPEED); // reads the message
+      c.tp = true; // starts typing quickly...
+      await Promise.all([pr, sleep(rnd(900, 1800) * SPEED)]);
+      const r = await pr;
       const parts = r.split("||").map(s => s.trim()).filter(Boolean).slice(0, 3);
       if (!parts.length) parts.push("hm");
       for (let i = 0; i < parts.length; i++) {
         const L = parts[i].length;
-        let wait;
-        if (i === 0) wait = Math.max(0, Math.min(9000, 1200 + L * 65) - (Date.now() - t0));
-        else { wait = Math.min(5000, 700 + L * 55); c.from = Date.now() + 250; }
-        c.until = Date.now() + wait + 200;
-        await sleep(wait);
-        c.until = 0;
+        if (i > 0) { c.tp = false; await sleep(rnd(300, 900) * SPEED); c.tp = true; }
+        else if (Math.random() < (L > 80 ? 0.75 : L > 25 ? 0.5 : 0.2)) {
+          c.tp = false; // ...then stops to think for a floating 2-5 seconds
+          await sleep(rnd(2000, 5000) * SPEED);
+          c.tp = true;
+        }
+        await sleep(Math.min(18000, Math.max(900, L * 85 * rnd(0.8, 1.3))) * SPEED); // typing time grows with length
+        c.tp = false;
         c.msgs.push({ f: "a", t: parts[i], ts: Date.now() });
       }
       more = c.msgs.slice(n).some(m => m.f === "q");
     }
-  } finally { c.busy = false; }
+    c.nudges = 0;
+    c.nudgeAt = Date.now() + rnd(20000, 30000) * SPEED;
+  } finally { c.busy = false; c.tp = false; }
+}
+
+async function nudgeTurn(c, id) {
+  if (c.busy) return;
+  c.busy = true; c.nudgeAt = 0;
+  try {
+    const n = c.msgs.length;
+    const fb = c.msgs.length ? "Please, write smth, anything really" : "Hellooooo";
+    const pr = llm(id, c.msgs, c.msgs.length ? NUDGE : OPENER).catch(() => fb);
+    c.tp = true;
+    const [raw] = await Promise.all([pr, sleep(rnd(1000, 2000) * SPEED)]);
+    const r = raw.split("||")[0].trim() || fb;
+    await sleep(Math.min(6000, Math.max(900, r.length * 85 * rnd(0.8, 1.3))) * SPEED);
+    c.tp = false;
+    if (c.msgs.length === n) { // skip if the participant wrote in the meantime
+      c.msgs.push({ f: "a", t: r, ts: Date.now() });
+      c.nudges++;
+      c.nudgeAt = c.nudges < 2 ? Date.now() + rnd(30000, 45000) * SPEED : 0;
+    }
+  } finally {
+    c.busy = false; c.tp = false;
+    if (c.msgs.length && c.msgs[c.msgs.length - 1].f === "q") botTurn(c, id);
+  }
 }
 
 const page = (r, id, k) => {
@@ -107,15 +146,16 @@ header{padding:12px 16px;border-bottom:1px solid var(--ln);display:flex;flex-dir
 form{display:flex;gap:8px;padding:10px 16px;border-top:1px solid var(--ln)}
 #in{flex:1;min-width:0;font:inherit;color:inherit;background:var(--bg);border:1px solid var(--ln);border-radius:20px;padding:8px 14px}
 button{font:inherit;border:0;border-radius:20px;padding:8px 16px;background:var(--me);color:var(--mefg)}
-</style></head><body><div class="app"><header><b>${n}</b>${r === "a" ? "<span>You’re replying as " + n + ". Write the way you normally would.</span>" : ""}</header><div id="log"></div><form id="f" autocomplete="off"><input id="in" maxlength="500" aria-label="Message" placeholder="Message"><button>Send</button></form></div>
+</style></head><body><div class="app"><header><b>${n}</b>${r === "a" ? "<span>You’re replying as " + n + ". Write the way you normally would.</span><span id='nt'></span>" : ""}</header><div id="log"></div><form id="f" autocomplete="off"><input id="in" maxlength="500" aria-label="Message" placeholder="Message"><button>Send</button></form></div>
 <script>
-const R="${r}",ID="${id}",K=${JSON.stringify(k)};let ms=[],last="",lt=0;
+const R="${r}",ID="${id}",K=${JSON.stringify(k)};let ms=[],last="",lt=0,ch=Date.now();
 const log=document.getElementById("log"),inp=document.getElementById("in");
 function draw(typing){log.textContent="";ms.forEach(m=>{const d=document.createElement("div");d.className="m "+(m.f===R?"me":"them");d.textContent=m.t;log.appendChild(d)});if(typing){const d=document.createElement("div");d.className="m them dots";d.textContent="• • •";log.appendChild(d)}log.scrollTop=log.scrollHeight}
-async function poll(){try{const j=await(await fetch("/api/poll?id="+ID+"&r="+R+"&k="+encodeURIComponent(K))).json();const s=j.msgs.length+"|"+j.typing;if(s!==last){last=s;ms=j.msgs;draw(j.typing)}}catch(e){}setTimeout(poll,1200)}
+async function poll(){try{const j=await(await fetch("/api/poll?id="+ID+"&r="+R+"&k="+encodeURIComponent(K))).json();const s=j.msgs.length+"|"+j.typing;if(s!==last){last=s;ms=j.msgs;draw(j.typing);ch=Date.now()}}catch(e){}setTimeout(poll,1200)}
 const post=(u,b)=>fetch(u,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(b)});
-document.getElementById("f").onsubmit=e=>{e.preventDefault();const t=inp.value.trim();if(!t)return;inp.value="";ms.push({f:R,t:t});last="";draw(false);post("/api/send",{id:ID,r:R,k:K,t:t})};
+document.getElementById("f").onsubmit=e=>{e.preventDefault();const t=inp.value.trim();if(!t)return;inp.value="";ms.push({f:R,t:t});last="";ch=Date.now();draw(false);post("/api/send",{id:ID,r:R,k:K,t:t})};
 inp.oninput=()=>{if(R==="a"&&Date.now()-lt>1500){lt=Date.now();post("/api/typing",{id:ID,k:K})}};
+setInterval(()=>{const nt=document.getElementById("nt");if(!nt)return;const l=ms.length?ms[ms.length-1]:null;nt.textContent=!l?(Date.now()-ch>40000?"Nobody has written yet. You can say hi first.":""):(l.f==="a"&&Date.now()-ch>25000?"They’ve been quiet for a while. You can nudge them.":"")},2000);
 poll();
 </script></body></html>`;
 };
@@ -143,6 +183,11 @@ document.getElementById("all").onclick=async()=>{if(confirm("Clear every convers
 load();setInterval(load,3000);
 </script></body></html>`;
 
+if (NUDGE_ON) setInterval(() => {
+  const now = Date.now();
+  for (const id in C) { const c = C[id]; if (!HUMAN.includes(id) && !c.busy && c.nudgeAt && now >= c.nudgeAt) nudgeTurn(c, id); }
+}, 2000);
+
 http.createServer(async (req, res) => {
   const u = new URL(req.url, "http://x"), p = u.pathname, k = u.searchParams.get("k") || "";
   const send = (c, b, t = "text/html; charset=utf-8") => { res.writeHead(c, { "content-type": t, "cache-control": "no-store" }); res.end(b); };
@@ -161,7 +206,7 @@ http.createServer(async (req, res) => {
     const id = u.searchParams.get("id"), r = u.searchParams.get("r");
     if (!valid(id) || (r === "a" && k !== OPKEY)) return json(400, {});
     const c = conv(id), n = Date.now();
-    return json(200, { msgs: c.msgs, typing: r === "q" && n >= c.from && n < c.until });
+    return json(200, { msgs: c.msgs, typing: r === "q" && (c.tp || (n >= c.from && n < c.until)) });
   }
   if (req.method === "POST" && p === "/api/reset") {
     const b = await body();
@@ -182,6 +227,7 @@ http.createServer(async (req, res) => {
       } else {
         if (c.msgs.filter(x => x.f === "q").length >= MAXQ) return json(429, {});
         c.msgs.push({ f: "q", t, ts: Date.now() });
+        c.nudgeAt = 0; c.nudges = 0;
         if (!HUMAN.includes(b.id)) botTurn(c, b.id);
       }
     }
